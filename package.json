@@ -1,0 +1,25 @@
+{
+  "name": "gympilot-server",
+  "version": "1.0.0",
+  "description": "GymPilot — Fitness Platform Backend API",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "seed": "node scripts/seed-classes.mjs"
+  },
+  "keywords": ["fitness", "gym", "api", "express", "mongodb"],
+  "author": "GymPilot Team",
+  "license": "MIT",
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.4",
+    "express": "^5.2.1",
+    "mongodb": "^7.7.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.7"
+  }
+}
