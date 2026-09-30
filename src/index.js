@@ -20,14 +20,38 @@ import paymentsRoutes from "./routes/payments.routes.js";
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// ⭐ CORS configuration
 app.use(
   cors({
-    origin: ["http://localhost:3000", process.env.CLIENT_URL].filter(Boolean),
+    origin: [
+      "http://localhost:3000",
+      "https://gym-pilot-client.vercel.app", // Apnar frontend Vercel URL
+      process.env.CLIENT_URL,
+    ].filter(Boolean),
     credentials: true,
   })
 );
 app.use(express.json({ limit: "10mb" }));
 app.use(cookieParser());
+
+// ⭐ Database connection middleware (Vercel er jonno must)
+let isConnected = false;
+app.use(async (req, res, next) => {
+  if (!isConnected) {
+    try {
+      await connectDB();
+      isConnected = true;
+      console.log("✅ MongoDB connected");
+    } catch (err) {
+      console.error("❌ MongoDB connection failed:", err);
+      return res.status(500).json({
+        success: false,
+        error: "Database connection failed",
+      });
+    }
+  }
+  next();
+});
 
 app.get("/", (req, res) => {
   res.json({
@@ -63,18 +87,20 @@ app.use((req, res) => {
 
 app.use(errorHandler);
 
-async function start() {
-  try {
-    await connectDB();
-    app.listen(PORT, () => {
-      console.log(`\n🚀 Server running on http://localhost:${PORT}`);
-      console.log(`📊 Env: ${process.env.NODE_ENV || "development"}`);
-      console.log(`🔐 Auth: Better Auth session (shared with client)\n`);
+// ⭐ Local e listen korun
+if (process.env.NODE_ENV !== "production") {
+  connectDB()
+    .then(() => {
+      app.listen(PORT, () => {
+        console.log(`\n🚀 Server running on http://localhost:${PORT}`);
+        console.log(`📊 Env: ${process.env.NODE_ENV || "development"}`);
+      });
+    })
+    .catch((err) => {
+      console.error("❌ Failed to start:", err);
+      process.exit(1);
     });
-  } catch (err) {
-    console.error("❌ Failed to start:", err);
-    process.exit(1);
-  }
 }
 
-start();
+// ⭐ Vercel serverless function er jonno export
+export default app;
