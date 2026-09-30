@@ -1,10 +1,11 @@
+import "dotenv/config";
+
 import dns from "node:dns";
 dns.setServers(["1.1.1.1", "1.0.0.1"]);
 
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-import dotenv from "dotenv";
 import { connectDB } from "./config/db.js";
 import errorHandler from "./middleware/errorHandler.js";
 
@@ -14,8 +15,7 @@ import usersRoutes from "./routes/users.routes.js";
 import bookingsRoutes from "./routes/bookings.routes.js";
 import favoritesRoutes from "./routes/favorites.routes.js";
 import applicationsRoutes from "./routes/applications.routes.js";
-
-dotenv.config();
+import paymentsRoutes from "./routes/payments.routes.js";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -41,6 +41,7 @@ app.get("/", (req, res) => {
       bookings: "/api/bookings",
       favorites: "/api/favorites",
       applications: "/api/trainer-applications",
+      payments: "/api/payments",
     },
   });
 });
@@ -51,6 +52,7 @@ app.use("/api/users", usersRoutes);
 app.use("/api/bookings", bookingsRoutes);
 app.use("/api/favorites", favoritesRoutes);
 app.use("/api/trainer-applications", applicationsRoutes);
+app.use("/api/payments", paymentsRoutes);
 
 app.use((req, res) => {
   res.status(404).json({
