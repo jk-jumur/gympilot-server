@@ -33,7 +33,14 @@ router.post("/create-checkout-session", verifyToken, async (req, res, next) => {
       throw new ApiError(409, "You have already booked this class");
     }
 
-    // ⭐ Stripe Checkout Session
+    //  DB field names handle 
+    const className = cls.name || cls.className || "Fitness Class";
+    const trainerName =
+      cls.trainer || cls.trainerName || "Unknown Trainer";
+    const schedule = cls.schedule || "";
+    const duration = cls.duration || "";
+    const image = cls.image || "";
+
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       mode: "payment",
@@ -42,21 +49,23 @@ router.post("/create-checkout-session", verifyToken, async (req, res, next) => {
           price_data: {
             currency: "usd",
             product_data: {
-              name: cls.name,
-              description: `Trainer: ${cls.trainer} • ${cls.duration}`,
-              images: [cls.image],
+              name: className,
+              description: `Trainer: ${trainerName} • ${duration}`,
+              images: image ? [image] : [],
             },
-            unit_amount: Math.round(cls.price * 100),
+            unit_amount: Math.round((cls.price || 0) * 100),
           },
           quantity: 1,
         },
       ],
-      customer_email: req.user.email,
+   
       metadata: {
         classId,
         userId: req.user.id,
-        className: cls.name,
-        trainer: cls.trainer,
+        className,
+        trainer: trainerName,  
+        trainerName,             
+        schedule,                
       },
       success_url: `${process.env.CLIENT_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.CLIENT_URL}/payment/${classId}`,
@@ -74,6 +83,7 @@ router.post("/create-checkout-session", verifyToken, async (req, res, next) => {
 
 // ═══════════════════════════════════════════════════════
 // GET /api/payments/verify/:sessionId
+// ⭐ Session info + auto booking save
 // ═══════════════════════════════════════════════════════
 router.get("/verify/:sessionId", verifyToken, async (req, res, next) => {
   try {
@@ -81,13 +91,62 @@ router.get("/verify/:sessionId", verifyToken, async (req, res, next) => {
       req.params.sessionId
     );
 
+    if (session.payment_status !== "paid") {
+      return res.json({
+        success: true,
+        paid: false,
+        message: "Payment not completed yet",
+      });
+    }
+
+    const {
+      classId,
+      userId,
+      className,
+      trainer,
+      trainerName: metaTrainerName,
+      schedule,
+    } = session.metadata;
+
+    const finalTrainer = metaTrainerName || trainer || "";
+
+    const bookingsCollection = getCollection("bookings");
+    const existing = await bookingsCollection.findOne({ userId, classId });
+
+    let booking = existing;
+
+    if (!existing) {
+      const newBooking = {
+        userId,
+       
+        userName: req.user.name || "",
+        classId,
+        className: className || "",
+        trainer: finalTrainer,          
+        trainerName: finalTrainer,      
+        schedule: schedule || "",       
+        amount: (session.amount_total || 0) / 100,
+        transactionId: session.payment_intent || session.id,
+        stripeSessionId: session.id,
+        status: "confirmed",
+        createdAt: new Date(),
+      };
+
+      const result = await bookingsCollection.insertOne(newBooking);
+      booking = { ...newBooking, _id: result.insertedId.toString() };
+      console.log(`✅ Booking saved for ${session.customer_email}`);
+    }
+
     res.json({
       success: true,
-      paid: session.payment_status === "paid",
+      paid: true,
+      booking: booking
+        ? { ...booking, _id: booking._id?.toString?.() || booking._id }
+        : null,
       session: {
         id: session.id,
         email: session.customer_email,
-        amount: session.amount_total / 100,
+        amount: (session.amount_total || 0) / 100,
         metadata: session.metadata,
       },
     });
@@ -97,8 +156,7 @@ router.get("/verify/:sessionId", verifyToken, async (req, res, next) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// POST /api/payments/confirm/:sessionId
-// ⭐ FALLBACK: Save booking after payment
+// POST /api/payments/confirm/:sessionId (fallback)
 // ═══════════════════════════════════════════════════════
 router.post("/confirm/:sessionId", verifyToken, async (req, res, next) => {
   try {
@@ -110,23 +168,32 @@ router.post("/confirm/:sessionId", verifyToken, async (req, res, next) => {
       throw new ApiError(400, "Payment not completed");
     }
 
-    const { classId, userId, className, trainer } = session.metadata;
-    const bookingsCollection = getCollection("bookings");
-
-    const existing = await bookingsCollection.findOne({
-      userId,
+    const {
       classId,
-    });
+      userId,
+      className,
+      trainer,
+      trainerName: metaTrainerName,
+      schedule,
+    } = session.metadata;
+
+    const finalTrainer = metaTrainerName || trainer || "";
+
+    const bookingsCollection = getCollection("bookings");
+    const existing = await bookingsCollection.findOne({ userId, classId });
 
     if (!existing) {
       await bookingsCollection.insertOne({
         userId,
-        userEmail: session.customer_email,
+        // userEmail: session.customer_email,
+        userName: req.user.name || "",
         classId,
-        className,
-        trainer,
-        amount: session.amount_total / 100,
-        transactionId: session.payment_intent,
+        className: className || "",
+        trainer: finalTrainer,          
+        trainerName: finalTrainer,      
+        schedule: schedule || "",       
+        amount: (session.amount_total || 0) / 100,
+        transactionId: session.payment_intent || session.id,
         stripeSessionId: session.id,
         status: "confirmed",
         createdAt: new Date(),
