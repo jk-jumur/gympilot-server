@@ -4,6 +4,7 @@ import { ObjectId } from "mongodb";
 import { getCollection } from "../config/db.js";
 import { verifyToken } from "../middleware/verifyToken.js";
 import { ApiError } from "../utils/ApiError.js";
+import { verifyRole } from "../middleware/verifyRole.js";
 
 const router = express.Router();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -206,5 +207,39 @@ router.post("/confirm/:sessionId", verifyToken, async (req, res, next) => {
     next(err);
   }
 });
+
+
+// ═══════════════════════════════════════════════════════
+// GET /api/payments/transactions — All payments (admin)
+// ═══════════════════════════════════════════════════════
+router.get(
+  "/transactions",
+  verifyToken,
+  verifyRole("admin"),
+  async (req, res, next) => {
+    try {
+      const transactions = await getCollection("bookings")
+        .find({ transactionId: { $exists: true, $ne: null } })
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      res.json({
+        success: true,
+        data: transactions.map((t) => ({
+          _id: t._id.toString(),
+          userEmail: t.userEmail,
+          userName: t.userName,
+          amount: t.amount || 0,
+          transactionId: t.transactionId,
+          classId: t.classId,
+          className: t.className,
+          createdAt: t.createdAt,
+        })),
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 export default router;
