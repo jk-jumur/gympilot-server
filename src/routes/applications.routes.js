@@ -7,6 +7,7 @@ import { ApiError } from "../utils/ApiError.js";
 
 const router = express.Router();
 
+// Submit trainer application
 router.post("/", verifyToken, async (req, res, next) => {
   try {
     const { experience, specialty } = req.body;
@@ -16,12 +17,20 @@ router.post("/", verifyToken, async (req, res, next) => {
 
     const collection = getCollection("trainerApplications");
 
+    //  Check for both pending and approved
     const existing = await collection.findOne({
       userId: req.user.id,
-      status: "pending",
+      status: { $in: ["pending", "approved"] },
     });
 
-    if (existing) throw new ApiError(409, "You already have a pending application");
+    if (existing) {
+      throw new ApiError(
+        409,
+        existing.status === "pending"
+          ? "You already have a pending application"
+          : "You are already a trainer"
+      );
+    }
 
     const application = {
       userId: req.user.id,
@@ -37,6 +46,7 @@ router.post("/", verifyToken, async (req, res, next) => {
     };
 
     const result = await collection.insertOne(application);
+
     res.status(201).json({
       success: true,
       data: { ...application, _id: result.insertedId.toString() },
@@ -46,20 +56,7 @@ router.post("/", verifyToken, async (req, res, next) => {
   }
 });
 
-router.get("/", verifyToken, verifyRole("admin"), async (req, res, next) => {
-  try {
-    const collection = getCollection("trainerApplications");
-    const apps = await collection.find({}).sort({ createdAt: -1 }).toArray();
-
-    res.json({
-      success: true,
-      data: apps.map((a) => ({ ...a, _id: a._id.toString() })),
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
+// Get my application
 router.get("/me", verifyToken, async (req, res, next) => {
   try {
     const collection = getCollection("trainerApplications");
@@ -74,6 +71,22 @@ router.get("/me", verifyToken, async (req, res, next) => {
   }
 });
 
+// Admin: get all applications
+router.get("/", verifyToken, verifyRole("admin"), async (req, res, next) => {
+  try {
+    const collection = getCollection("trainerApplications");
+    const apps = await collection.find({}).sort({ createdAt: -1 }).toArray();
+
+    res.json({
+      success: true,
+      data: apps.map((a) => ({ ...a, _id: a._id.toString() })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin: approve/reject application
 router.patch("/:id", verifyToken, verifyRole("admin"), async (req, res, next) => {
   try {
     const { action, feedback = "" } = req.body;
