@@ -1,15 +1,17 @@
 import express from "express";
 import { getCollection } from "../config/db.js";
 import { verifyToken } from "../middleware/verifyToken.js";
+import { verifyRole } from "../middleware/verifyRole.js";
 import { ApiError } from "../utils/ApiError.js";
 
 const router = express.Router();
 
-// Get my bookings
+// ═══════════════════════════════════════════════════════
+// GET /api/bookings — My bookings
+// ═══════════════════════════════════════════════════════
 router.get("/", verifyToken, async (req, res, next) => {
   try {
-    const collection = getCollection("bookings");
-    const bookings = await collection
+    const bookings = await getCollection("bookings")
       .find({ userId: req.user.id })
       .sort({ createdAt: -1 })
       .toArray();
@@ -23,11 +25,37 @@ router.get("/", verifyToken, async (req, res, next) => {
   }
 });
 
-// Check if already booked
+// ═══════════════════════════════════════════════════════
+// GET /api/bookings/all — All bookings (admin)
+// ⚠️ MUST be BEFORE /check/:classId
+// ═══════════════════════════════════════════════════════
+router.get(
+  "/all",
+  verifyToken,
+  verifyRole("admin"),
+  async (req, res, next) => {
+    try {
+      const bookings = await getCollection("bookings")
+        .find({})
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      res.json({
+        success: true,
+        data: bookings.map((b) => ({ ...b, _id: b._id.toString() })),
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════
+// GET /api/bookings/check/:classId — Already booked?
+// ═══════════════════════════════════════════════════════
 router.get("/check/:classId", verifyToken, async (req, res, next) => {
   try {
-    const collection = getCollection("bookings");
-    const existing = await collection.findOne({
+    const existing = await getCollection("bookings").findOne({
       userId: req.user.id,
       classId: req.params.classId,
     });
@@ -38,7 +66,9 @@ router.get("/check/:classId", verifyToken, async (req, res, next) => {
   }
 });
 
-// Create booking
+// ═══════════════════════════════════════════════════════
+// POST /api/bookings — Create booking
+// ═══════════════════════════════════════════════════════
 router.post("/", verifyToken, async (req, res, next) => {
   try {
     const {
@@ -52,8 +82,7 @@ router.post("/", verifyToken, async (req, res, next) => {
 
     if (!classId) throw new ApiError(400, "Class ID required");
 
-    const collection = getCollection("bookings");
-    const existing = await collection.findOne({
+    const existing = await getCollection("bookings").findOne({
       userId: req.user.id,
       classId,
     });
@@ -68,15 +97,27 @@ router.post("/", verifyToken, async (req, res, next) => {
       userName: req.user.name,
       classId,
       className: className || "",
+      trainer: trainerName || "",
       trainerName: trainerName || "",
       schedule: schedule || "",
-      transactionId: transactionId || `txn_${Date.now()}`,
       amount: amount || 0,
+      transactionId: transactionId || `txn_${Date.now()}`,
       status: "confirmed",
       createdAt: new Date(),
     };
 
-    const result = await collection.insertOne(booking);
+    const result = await getCollection("bookings").insertOne(booking);
+
+    // ⭐ Increment bookingsCount on the class
+    try {
+      const { ObjectId } = await import("mongodb");
+      await getCollection("classes").updateOne(
+        { _id: new ObjectId(classId) },
+        { $inc: { bookingsCount: 1, enrolledCount: 1 } }
+      );
+    } catch (e) {
+      console.error("Failed to increment class count:", e);
+    }
 
     res.status(201).json({
       success: true,
