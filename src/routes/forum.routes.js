@@ -20,7 +20,12 @@ router.get("/", async (req, res, next) => {
     const collection = getCollection("forumPosts");
 
     const [posts, totalItems] = await Promise.all([
-      collection.find({}).sort({ createdAt: -1 }).skip(skip).limit(limitNum).toArray(),
+      collection
+        .find({})
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .toArray(),
       collection.countDocuments({}),
     ]);
 
@@ -29,7 +34,14 @@ router.get("/", async (req, res, next) => {
     res.json({
       success: true,
       data: posts.map((p) => ({ ...p, _id: p._id.toString() })),
-      pagination: { currentPage: pageNum, totalPages, totalItems },
+      pagination: {
+        currentPage: pageNum,
+        totalPages,
+        totalItems,
+        itemsPerPage: limitNum,
+        hasNextPage: pageNum < totalPages,
+        hasPrevPage: pageNum > 1,
+      },
     });
   } catch (err) {
     next(err);
@@ -56,6 +68,32 @@ router.get("/latest", async (req, res, next) => {
     next(err);
   }
 });
+
+// ═══════════════════════════════════════════════════════
+// ⚠️ IMPORTANT: /my MUST be BEFORE /:id
+// GET /api/forum/my — Own posts (trainer/admin only)
+// ═══════════════════════════════════════════════════════
+router.get(
+  "/my",
+  verifyToken,
+  verifyRole("trainer", "admin"),
+  async (req, res, next) => {
+    try {
+      const collection = getCollection("forumPosts");
+      const posts = await collection
+        .find({ authorId: req.user.id })
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      res.json({
+        success: true,
+        data: posts.map((p) => ({ ...p, _id: p._id.toString() })),
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 // ═══════════════════════════════════════════════════════
 // GET /api/forum/:id — Single post
@@ -95,7 +133,9 @@ router.post(
         excerpt: description.substring(0, 140) + "...",
         author: req.user.name,
         authorId: req.user.id,
+        authorEmail: req.user.email,
         authorImage: req.user.image || "",
+        authorRole: req.user.role,
         likes: [],
         dislikes: [],
         comments: [],
@@ -137,7 +177,13 @@ router.post("/:id/like", verifyToken, async (req, res, next) => {
 
     await collection.updateOne(
       { _id: post._id },
-      { $set: { likes: newLikes, dislikes: newDislikes, updatedAt: new Date() } }
+      {
+        $set: {
+          likes: newLikes,
+          dislikes: newDislikes,
+          updatedAt: new Date(),
+        },
+      }
     );
 
     const updated = await collection.findOne({ _id: post._id });
@@ -172,7 +218,13 @@ router.post("/:id/dislike", verifyToken, async (req, res, next) => {
 
     await collection.updateOne(
       { _id: post._id },
-      { $set: { likes: newLikes, dislikes: newDislikes, updatedAt: new Date() } }
+      {
+        $set: {
+          likes: newLikes,
+          dislikes: newDislikes,
+          updatedAt: new Date(),
+        },
+      }
     );
 
     const updated = await collection.findOne({ _id: post._id });
@@ -202,6 +254,7 @@ router.post("/:id/comments", verifyToken, async (req, res, next) => {
       _id: new ObjectId().toString(),
       userId: req.user.id,
       userName: req.user.name,
+      userEmail: req.user.email,
       userImage: req.user.image || "",
       text: text.trim(),
       createdAt: new Date(),
@@ -225,70 +278,116 @@ router.post("/:id/comments", verifyToken, async (req, res, next) => {
 // ═══════════════════════════════════════════════════════
 // PATCH /api/forum/:id/comments/:commentId — Edit comment
 // ═══════════════════════════════════════════════════════
-router.patch("/:id/comments/:commentId", verifyToken, async (req, res, next) => {
-  try {
-    const { text } = req.body;
-    if (!text?.trim()) throw new ApiError(400, "Comment text required");
+router.patch(
+  "/:id/comments/:commentId",
+  verifyToken,
+  async (req, res, next) => {
+    try {
+      const { text } = req.body;
+      if (!text?.trim()) throw new ApiError(400, "Comment text required");
 
-    const collection = getCollection("forumPosts");
-    const post = await collection.findOne({ _id: new ObjectId(req.params.id) });
-    if (!post) throw new ApiError(404, "Post not found");
+      const collection = getCollection("forumPosts");
+      const post = await collection.findOne({
+        _id: new ObjectId(req.params.id),
+      });
+      if (!post) throw new ApiError(404, "Post not found");
 
-    const comment = post.comments?.find((c) => c._id === req.params.commentId);
-    if (!comment) throw new ApiError(404, "Comment not found");
-    if (comment.userId !== req.user.id) {
-      throw new ApiError(403, "You can only edit your own comments");
-    }
-
-    const updatedAt = new Date();
-
-    await collection.updateOne(
-      { _id: post._id, "comments._id": req.params.commentId },
-      {
-        $set: {
-          "comments.$.text": text.trim(),
-          "comments.$.updatedAt": updatedAt,
-          updatedAt,
-        },
+      const comment = post.comments?.find(
+        (c) => c._id === req.params.commentId
+      );
+      if (!comment) throw new ApiError(404, "Comment not found");
+      if (comment.userId !== req.user.id) {
+        throw new ApiError(403, "You can only edit your own comments");
       }
-    );
 
-    res.json({
-      success: true,
-      data: { ...comment, text: text.trim(), updatedAt },
-    });
-  } catch (err) {
-    next(err);
+      const updatedAt = new Date();
+
+      await collection.updateOne(
+        { _id: post._id, "comments._id": req.params.commentId },
+        {
+          $set: {
+            "comments.$.text": text.trim(),
+            "comments.$.updatedAt": updatedAt,
+            updatedAt,
+          },
+        }
+      );
+
+      res.json({
+        success: true,
+        data: { ...comment, text: text.trim(), updatedAt },
+      });
+    } catch (err) {
+      next(err);
+    }
   }
-});
+);
 
 // ═══════════════════════════════════════════════════════
 // DELETE /api/forum/:id/comments/:commentId — Delete comment
 // ═══════════════════════════════════════════════════════
-router.delete("/:id/comments/:commentId", verifyToken, async (req, res, next) => {
-  try {
-    const collection = getCollection("forumPosts");
-    const post = await collection.findOne({ _id: new ObjectId(req.params.id) });
-    if (!post) throw new ApiError(404, "Post not found");
+router.delete(
+  "/:id/comments/:commentId",
+  verifyToken,
+  async (req, res, next) => {
+    try {
+      const collection = getCollection("forumPosts");
+      const post = await collection.findOne({
+        _id: new ObjectId(req.params.id),
+      });
+      if (!post) throw new ApiError(404, "Post not found");
 
-    const comment = post.comments?.find((c) => c._id === req.params.commentId);
-    if (!comment) throw new ApiError(404, "Comment not found");
-    if (comment.userId !== req.user.id && req.user.role !== "admin") {
-      throw new ApiError(403, "You can only delete your own comments");
-    }
-
-    await collection.updateOne(
-      { _id: post._id },
-      {
-        $pull: { comments: { _id: req.params.commentId } },
-        $set: { updatedAt: new Date() },
+      const comment = post.comments?.find(
+        (c) => c._id === req.params.commentId
+      );
+      if (!comment) throw new ApiError(404, "Comment not found");
+      if (comment.userId !== req.user.id && req.user.role !== "admin") {
+        throw new ApiError(403, "You can only delete your own comments");
       }
-    );
 
-    res.json({ success: true });
-  } catch (err) {
-    next(err);
+      await collection.updateOne(
+        { _id: post._id },
+        {
+          $pull: { comments: { _id: req.params.commentId } },
+          $set: { updatedAt: new Date() },
+        }
+      );
+
+      res.json({ success: true });
+    } catch (err) {
+      next(err);
+    }
   }
-});
+);
+
+// ═══════════════════════════════════════════════════════
+// ⚠️ DELETE /:id MUST be LAST (after /:id/comments/:commentId)
+// DELETE /api/forum/:id — Delete post (own post OR admin)
+// ═══════════════════════════════════════════════════════
+router.delete(
+  "/:id",
+  verifyToken,
+  verifyRole("trainer", "admin"),
+  async (req, res, next) => {
+    try {
+      const collection = getCollection("forumPosts");
+      const post = await collection.findOne({
+        _id: new ObjectId(req.params.id),
+      });
+
+      if (!post) throw new ApiError(404, "Post not found");
+
+      // ⚠️ Trainer শুধু নিজের post delete করতে পারবে, admin সব
+      if (req.user.role !== "admin" && post.authorId !== req.user.id) {
+        throw new ApiError(403, "You can only delete your own post");
+      }
+
+      await collection.deleteOne({ _id: post._id });
+      res.json({ success: true, message: "Post deleted" });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 export default router;
