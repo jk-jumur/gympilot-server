@@ -5,6 +5,7 @@ import { ApiError } from "../utils/ApiError.js";
 
 const router = express.Router();
 
+// Get my bookings
 router.get("/", verifyToken, async (req, res, next) => {
   try {
     const collection = getCollection("bookings");
@@ -22,9 +23,33 @@ router.get("/", verifyToken, async (req, res, next) => {
   }
 });
 
+// Check if already booked
+router.get("/check/:classId", verifyToken, async (req, res, next) => {
+  try {
+    const collection = getCollection("bookings");
+    const existing = await collection.findOne({
+      userId: req.user.id,
+      classId: req.params.classId,
+    });
+
+    res.json({ success: true, booked: !!existing });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Create booking
 router.post("/", verifyToken, async (req, res, next) => {
   try {
-    const { classId } = req.body;
+    const {
+      classId,
+      className,
+      trainerName,
+      schedule,
+      amount,
+      transactionId,
+    } = req.body;
+
     if (!classId) throw new ApiError(400, "Class ID required");
 
     const collection = getCollection("bookings");
@@ -40,9 +65,13 @@ router.post("/", verifyToken, async (req, res, next) => {
     const booking = {
       userId: req.user.id,
       userEmail: req.user.email,
+      userName: req.user.name,
       classId,
-      transactionId: `txn_${Date.now()}`,
-      amount: 0,
+      className: className || "",
+      trainerName: trainerName || "",
+      schedule: schedule || "",
+      transactionId: transactionId || `txn_${Date.now()}`,
+      amount: amount || 0,
       status: "confirmed",
       createdAt: new Date(),
     };
@@ -53,20 +82,6 @@ router.post("/", verifyToken, async (req, res, next) => {
       success: true,
       data: { ...booking, _id: result.insertedId.toString() },
     });
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.get("/check/:classId", verifyToken, async (req, res, next) => {
-  try {
-    const collection = getCollection("bookings");
-    const existing = await collection.findOne({
-      userId: req.user.id,
-      classId: req.params.classId,
-    });
-
-    res.json({ success: true, booked: !!existing });
   } catch (err) {
     next(err);
   }
