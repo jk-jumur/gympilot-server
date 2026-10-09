@@ -1,23 +1,37 @@
+
 import { ObjectId } from "mongodb";
 import { getDB } from "../config/db.js";
 import { ApiError } from "../utils/ApiError.js";
 
 export async function verifyToken(req, res, next) {
   try {
-    const sessionToken =
+    let rawToken =
       req.cookies?.["better-auth.session_token"] ||
       req.cookies?.["__Secure-better-auth.session_token"];
 
-    if (!sessionToken) {
+    if (!rawToken) {
       throw new ApiError(401, "Authentication required. Please login.");
     }
 
+   
+    rawToken = decodeURIComponent(rawToken);
+
+   
+    
+    const token = rawToken.split(".")[0];
+
     const db = getDB();
-    const session = await db.collection("session").findOne({
-      token: sessionToken,
-    });
+
+   
+    let session = await db.collection("session").findOne({ token });
 
     if (!session) {
+      // fallback: full token try
+      session = await db.collection("session").findOne({ token: rawToken });
+    }
+
+    if (!session) {
+     
       throw new ApiError(401, "Invalid session");
     }
 
@@ -52,3 +66,4 @@ export async function verifyToken(req, res, next) {
     next(err);
   }
 }
+
