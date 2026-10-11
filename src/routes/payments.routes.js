@@ -58,12 +58,12 @@ router.post("/create-checkout-session", verifyToken, async (req, res, next) => {
           quantity: 1,
         },
       ],
-      customer_email: req.user.email,   // ⭐ Customer email include
+      customer_email: req.user.email,   
       metadata: {
         classId,
         userId: req.user.id,
-        userName: req.user.name,        // ⭐ NEW
-        userEmail: req.user.email,      // ⭐ NEW
+        userName: req.user.name,        
+        userEmail: req.user.email,      
         className,
         trainer: trainerName,
         trainerName,
@@ -125,8 +125,8 @@ router.get("/verify/:sessionId", verifyToken, async (req, res, next) => {
     if (!existing) {
       const newBooking = {
         userId,
-        userEmail: finalUserEmail,        // ⭐ MUST
-        userName: finalUserName,           // ⭐ MUST
+        userEmail: finalUserEmail,        
+        userName: finalUserName,          
         userImage: req.user.image || "",
         classId,
         className: className || "",
@@ -199,8 +199,8 @@ router.post("/confirm/:sessionId", verifyToken, async (req, res, next) => {
     if (!existing) {
       await bookingsCollection.insertOne({
         userId,
-        userEmail: finalUserEmail,      // ⭐ MUST — uncommented
-        userName: finalUserName,         // ⭐ MUST
+        userEmail: finalUserEmail,      
+        userName: finalUserName,        
         userImage: req.user.image || "",
         classId,
         className: className || "",
