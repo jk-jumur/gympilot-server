@@ -34,10 +34,9 @@ router.post("/create-checkout-session", verifyToken, async (req, res, next) => {
       throw new ApiError(409, "You have already booked this class");
     }
 
-    //  DB field names handle 
+    // DB field names handle
     const className = cls.name || cls.className || "Fitness Class";
-    const trainerName =
-      cls.trainer || cls.trainerName || "Unknown Trainer";
+    const trainerName = cls.trainer || cls.trainerName || "Unknown Trainer";
     const schedule = cls.schedule || "";
     const duration = cls.duration || "";
     const image = cls.image || "";
@@ -59,14 +58,16 @@ router.post("/create-checkout-session", verifyToken, async (req, res, next) => {
           quantity: 1,
         },
       ],
-   
+      customer_email: req.user.email,   // ⭐ Customer email include
       metadata: {
         classId,
         userId: req.user.id,
+        userName: req.user.name,        // ⭐ NEW
+        userEmail: req.user.email,      // ⭐ NEW
         className,
-        trainer: trainerName,  
-        trainerName,             
-        schedule,                
+        trainer: trainerName,
+        trainerName,
+        schedule,
       },
       success_url: `${process.env.CLIENT_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.CLIENT_URL}/payment/${classId}`,
@@ -83,8 +84,7 @@ router.post("/create-checkout-session", verifyToken, async (req, res, next) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// GET /api/payments/verify/:sessionId
-// ⭐ Session info + auto booking save
+// GET /api/payments/verify/:sessionId — Session info + auto booking save
 // ═══════════════════════════════════════════════════════
 router.get("/verify/:sessionId", verifyToken, async (req, res, next) => {
   try {
@@ -107,9 +107,15 @@ router.get("/verify/:sessionId", verifyToken, async (req, res, next) => {
       trainer,
       trainerName: metaTrainerName,
       schedule,
+      userEmail: metaUserEmail,
+      userName: metaUserName,
     } = session.metadata;
 
     const finalTrainer = metaTrainerName || trainer || "";
+    // ⭐ Priority: metadata → session.customer_email → req.user.email
+    const finalUserEmail =
+      metaUserEmail || session.customer_email || req.user.email || "";
+    const finalUserName = metaUserName || req.user.name || "";
 
     const bookingsCollection = getCollection("bookings");
     const existing = await bookingsCollection.findOne({ userId, classId });
@@ -119,13 +125,14 @@ router.get("/verify/:sessionId", verifyToken, async (req, res, next) => {
     if (!existing) {
       const newBooking = {
         userId,
-       
-        userName: req.user.name || "",
+        userEmail: finalUserEmail,        // ⭐ MUST
+        userName: finalUserName,           // ⭐ MUST
+        userImage: req.user.image || "",
         classId,
         className: className || "",
-        trainer: finalTrainer,          
-        trainerName: finalTrainer,      
-        schedule: schedule || "",       
+        trainer: finalTrainer,
+        trainerName: finalTrainer,
+        schedule: schedule || "",
         amount: (session.amount_total || 0) / 100,
         transactionId: session.payment_intent || session.id,
         stripeSessionId: session.id,
@@ -135,7 +142,7 @@ router.get("/verify/:sessionId", verifyToken, async (req, res, next) => {
 
       const result = await bookingsCollection.insertOne(newBooking);
       booking = { ...newBooking, _id: result.insertedId.toString() };
-      console.log(`✅ Booking saved for ${session.customer_email}`);
+      console.log(`✅ Booking saved for ${finalUserEmail}`);
     }
 
     res.json({
@@ -176,9 +183,15 @@ router.post("/confirm/:sessionId", verifyToken, async (req, res, next) => {
       trainer,
       trainerName: metaTrainerName,
       schedule,
+      userEmail: metaUserEmail,
+      userName: metaUserName,
     } = session.metadata;
 
     const finalTrainer = metaTrainerName || trainer || "";
+    // ⭐ Priority fallback for email
+    const finalUserEmail =
+      metaUserEmail || session.customer_email || req.user.email || "";
+    const finalUserName = metaUserName || req.user.name || "";
 
     const bookingsCollection = getCollection("bookings");
     const existing = await bookingsCollection.findOne({ userId, classId });
@@ -186,20 +199,21 @@ router.post("/confirm/:sessionId", verifyToken, async (req, res, next) => {
     if (!existing) {
       await bookingsCollection.insertOne({
         userId,
-        // userEmail: session.customer_email,
-        userName: req.user.name || "",
+        userEmail: finalUserEmail,      // ⭐ MUST — uncommented
+        userName: finalUserName,         // ⭐ MUST
+        userImage: req.user.image || "",
         classId,
         className: className || "",
-        trainer: finalTrainer,          
-        trainerName: finalTrainer,      
-        schedule: schedule || "",       
+        trainer: finalTrainer,
+        trainerName: finalTrainer,
+        schedule: schedule || "",
         amount: (session.amount_total || 0) / 100,
         transactionId: session.payment_intent || session.id,
         stripeSessionId: session.id,
         status: "confirmed",
         createdAt: new Date(),
       });
-      console.log(`✅ Booking created for ${session.customer_email}`);
+      console.log(`✅ Booking created for ${finalUserEmail}`);
     }
 
     res.json({ success: true, message: "Booking confirmed" });
@@ -208,9 +222,9 @@ router.post("/confirm/:sessionId", verifyToken, async (req, res, next) => {
   }
 });
 
-
 // ═══════════════════════════════════════════════════════
 // GET /api/payments/transactions — All payments (admin)
+// ⭐ WITH ENRICHMENT
 // ═══════════════════════════════════════════════════════
 router.get(
   "/transactions",
@@ -218,23 +232,50 @@ router.get(
   verifyRole("admin"),
   async (req, res, next) => {
     try {
-      const transactions = await getCollection("bookings")
+      const bookingsCollection = getCollection("bookings");
+      const usersCollection = getCollection("user");
+
+      const transactions = await bookingsCollection
         .find({ transactionId: { $exists: true, $ne: null } })
         .sort({ createdAt: -1 })
         .toArray();
 
+      // ⭐ Enrich missing emails from user collection
+      const enriched = await Promise.all(
+        transactions.map(async (t) => {
+          let userEmail = t.userEmail;
+          let userName = t.userName;
+
+          // If email missing, lookup by userId
+          if (!userEmail && t.userId) {
+            try {
+              const user = await usersCollection.findOne({
+                _id: new ObjectId(t.userId),
+              });
+              userEmail = user?.email || null;
+              userName = userName || user?.name || null;
+            } catch (e) {
+              console.error("User lookup failed:", e.message);
+            }
+          }
+
+          return {
+            _id: t._id.toString(),
+            userId: t.userId,
+            userEmail: userEmail || "Unknown User",
+            userName: userName || "User",
+            amount: t.amount || 0,
+            transactionId: t.transactionId,
+            classId: t.classId,
+            className: t.className || "",
+            createdAt: t.createdAt,
+          };
+        })
+      );
+
       res.json({
         success: true,
-        data: transactions.map((t) => ({
-          _id: t._id.toString(),
-          userEmail: t.userEmail,
-          userName: t.userName,
-          amount: t.amount || 0,
-          transactionId: t.transactionId,
-          classId: t.classId,
-          className: t.className,
-          createdAt: t.createdAt,
-        })),
+        data: enriched,
       });
     } catch (err) {
       next(err);
