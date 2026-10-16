@@ -232,4 +232,90 @@ router.get("/:id", verifyToken, verifyRole("admin"), async (req, res, next) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════
+// POST /api/users/upload-image — Public upload (for register)
+// ═══════════════════════════════════════════════════════
+router.post("/upload-image", async (req, res, next) => {
+  try {
+    const { image } = req.body;
+
+    if (!image) {
+      throw new ApiError(400, "Image data is required");
+    }
+
+    if (!image.startsWith("data:image/")) {
+      throw new ApiError(400, "Invalid image format");
+    }
+
+    const imgbbApiKey = process.env.IMGBB_API_KEY;
+    if (!imgbbApiKey) {
+      throw new ApiError(500, "Image upload service not configured");
+    }
+
+    const base64Data = image.split(",")[1];
+
+    const formData = new URLSearchParams();
+    formData.append("key", imgbbApiKey);
+    formData.append("image", base64Data);
+
+    const imgbbRes = await fetch("https://api.imgbb.com/1/upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: formData.toString(),
+    });
+
+    const imgbbData = await imgbbRes.json();
+
+    if (!imgbbData.success) {
+      console.error("Imgbb upload failed:", imgbbData);
+      throw new ApiError(500, "Failed to upload image");
+    }
+
+    res.json({
+      success: true,
+      message: "Image uploaded successfully",
+      data: { url: imgbbData.data.url },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ═══════════════════════════════════════════════════════
+// PATCH /api/users/me/avatar — Update own profile image
+// ═══════════════════════════════════════════════════════
+router.patch("/me/avatar", verifyToken, async (req, res, next) => {
+  try {
+    const { image } = req.body;
+
+    if (!image) {
+      throw new ApiError(400, "Image URL is required");
+    }
+
+    const usersCollection = getCollection("user");
+    const result = await usersCollection.updateOne(
+      { email: req.user.email },
+      { $set: { image, updatedAt: new Date() } }
+    );
+
+    if (result.matchedCount === 0) {
+      throw new ApiError(404, "User not found");
+    }
+
+    res.json({
+      success: true,
+      message: "Profile image updated",
+      data: { image },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+
 export default router;
+
+
+
+
+

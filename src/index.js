@@ -17,6 +17,7 @@ import favoritesRoutes from "./routes/favorites.routes.js";
 import applicationsRoutes from "./routes/applications.routes.js";
 import paymentsRoutes from "./routes/payments.routes.js";
 import contactRoutes from "./routes/contact.routes.js";
+import statsRoutes from "./routes/stats.routes.js";
 
 
 const app = express();
@@ -69,6 +70,7 @@ app.get("/", (req, res) => {
       applications: "/api/trainer-applications",
       payments: "/api/payments",
       contact: "/api/contact",
+    
     },
   });
 });
@@ -81,7 +83,7 @@ app.use("/api/favorites", favoritesRoutes);
 app.use("/api/trainer-applications", applicationsRoutes);
 app.use("/api/payments", paymentsRoutes);
 app.use("/api/contact", contactRoutes);
-
+app.use("/api/stats", statsRoutes);
 app.use((req, res) => {
   res.status(404).json({
     success: false,
