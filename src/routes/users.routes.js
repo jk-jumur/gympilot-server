@@ -281,6 +281,39 @@ router.post("/upload-image", async (req, res, next) => {
   }
 });
 
+
+
+
+// ═══════════════════════════════════════════════════════
+// PATCH /api/users/me — Update own profile (name)
+// ═══════════════════════════════════════════════════════
+router.patch("/me", verifyToken, async (req, res, next) => {
+  try {
+    const { name } = req.body;
+
+    if (!name || name.trim().length < 2) {
+      throw new ApiError(400, "Name must be at least 2 characters");
+    }
+
+    const usersCollection = getCollection("user");
+    const result = await usersCollection.updateOne(
+      { email: req.user.email },
+      { $set: { name: name.trim(), updatedAt: new Date() } }
+    );
+
+    if (result.matchedCount === 0) {
+      throw new ApiError(404, "User not found");
+    }
+
+    res.json({
+      success: true,
+      message: "Profile updated successfully",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ═══════════════════════════════════════════════════════
 // PATCH /api/users/me/avatar — Update own profile image
 // ═══════════════════════════════════════════════════════
@@ -311,6 +344,7 @@ router.patch("/me/avatar", verifyToken, async (req, res, next) => {
     next(err);
   }
 });
+
 
 
 export default router;
