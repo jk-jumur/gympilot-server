@@ -16,11 +16,13 @@ import bookingsRoutes from "./routes/bookings.routes.js";
 import favoritesRoutes from "./routes/favorites.routes.js";
 import applicationsRoutes from "./routes/applications.routes.js";
 import paymentsRoutes from "./routes/payments.routes.js";
+import contactRoutes from "./routes/contact.routes.js";
+
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// ⭐ CORS - Frontend Vercel URL add korun
+// ⭐ CORS - Frontend Vercel URL add 
 app.use(
   cors({
     origin: [
@@ -34,7 +36,7 @@ app.use(
 app.use(express.json({ limit: "10mb" }));
 app.use(cookieParser());
 
-// ⭐ Database connection middleware (Vercel er jonno must)
+// ⭐ Database connection middleware 
 let isConnected = false;
 app.use(async (req, res, next) => {
   if (!isConnected) {
@@ -66,6 +68,7 @@ app.get("/", (req, res) => {
       favorites: "/api/favorites",
       applications: "/api/trainer-applications",
       payments: "/api/payments",
+      contact: "/api/contact",
     },
   });
 });
@@ -77,6 +80,7 @@ app.use("/api/bookings", bookingsRoutes);
 app.use("/api/favorites", favoritesRoutes);
 app.use("/api/trainer-applications", applicationsRoutes);
 app.use("/api/payments", paymentsRoutes);
+app.use("/api/contact", contactRoutes);
 
 app.use((req, res) => {
   res.status(404).json({
@@ -102,5 +106,5 @@ if (process.env.NODE_ENV !== "production") {
     });
 }
 
-// ⭐ Vercel serverless function er jonno export
+// ⭐ Vercel serverless function  export
 export default app;
